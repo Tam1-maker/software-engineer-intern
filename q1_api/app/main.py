@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 
 from app.batch_service import (
     CSVImportError,
@@ -11,6 +12,11 @@ from app.batch_service import (
     list_batch_cases,
 )
 from app.database import init_database
+from app.review_service import (
+    CaseNotFoundError,
+    InvalidTransitionError,
+    review_case,
+)
 
 
 ALLOWED_CASE_STATUSES = {
@@ -23,6 +29,13 @@ ALLOWED_CASE_STATUSES = {
     "stage2_rejected",
     "exported",
 }
+
+
+class ReviewRequest(BaseModel):
+    """Request body for one review decision."""
+
+    stage: int
+    decision: str
 
 
 @asynccontextmanager
@@ -112,3 +125,40 @@ def read_batch_cases(
         )
 
     return result
+
+
+@app.post("/api/cases/{case_id}/review")
+def create_case_review(
+    case_id: int,
+    request: ReviewRequest,
+):
+    """Apply a stage 1 or stage 2 review decision."""
+
+    if request.stage not in {1, 2}:
+        raise HTTPException(
+            status_code=422,
+            detail="stage must be 1 or 2",
+        )
+
+    if request.decision not in {"approve", "reject"}:
+        raise HTTPException(
+            status_code=422,
+            detail="decision must be approve or reject",
+        )
+
+    try:
+        return review_case(
+            case_id=case_id,
+            stage=request.stage,
+            decision=request.decision,
+        )
+    except CaseNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+    except InvalidTransitionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
