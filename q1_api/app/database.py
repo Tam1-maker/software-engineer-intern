@@ -97,6 +97,40 @@ def init_database() -> None:
                     ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS exports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER NOT NULL,
+                file_name TEXT NOT NULL,
+                file_content BLOB NOT NULL,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                case_count INTEGER NOT NULL,
+                delivery_status TEXT NOT NULL DEFAULT 'pending',
+                delivery_id TEXT,
+                delivery_receipt TEXT,
+                delivery_attempts INTEGER NOT NULL DEFAULT 0,
+                failure_reason TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (batch_id) REFERENCES batches(id)
+                    ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS export_cases (
+                export_id INTEGER NOT NULL,
+                case_id INTEGER NOT NULL,
+                PRIMARY KEY (export_id, case_id),
+                FOREIGN KEY (export_id) REFERENCES exports(id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (case_id) REFERENCES cases(id)
+                    ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_exports_batch_id
+            ON exports(batch_id);
+
+            CREATE INDEX IF NOT EXISTS idx_export_cases_case_id
+            ON export_cases(case_id);
+
+
             CREATE INDEX IF NOT EXISTS idx_cases_batch_id
             ON cases(batch_id);
 

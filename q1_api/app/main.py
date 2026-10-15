@@ -19,6 +19,10 @@ from app.batch_service import (
     list_batch_cases,
 )
 from app.database import init_database
+from app.export_service import (
+    BatchNotFoundError,
+    export_batch,
+)
 from app.ocr_processor import (
     get_pending_case_count,
     process_batch,
@@ -206,3 +210,24 @@ def start_batch_processing(
             else "no pending cases to process"
         ),
     }
+
+@app.post("/api/batches/{batch_id}/export")
+def create_batch_export(batch_id: int):
+    """Export and deliver new stage-two-approved cases."""
+
+    try:
+        result = export_batch(batch_id)
+    except BatchNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    if result.get("delivery_status") == "failed":
+        raise HTTPException(
+            status_code=502,
+            detail=result,
+        )
+
+    return result
+

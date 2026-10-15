@@ -235,3 +235,107 @@ def test_existing_database_is_upgraded(
     assert "ocr_issue_date" in column_names
     assert "ocr_confidence" in column_names
     assert "ocr_attempts" in column_names
+
+
+def test_export_tables_are_created(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "test.db"
+    monkeypatch.setenv("DATABASE_PATH", str(database_path))
+
+    init_database()
+
+    with get_connection() as connection:
+        table_rows = connection.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+            """
+        ).fetchall()
+
+        export_columns = connection.execute(
+            "PRAGMA table_info(exports)"
+        ).fetchall()
+
+    table_names = {
+        row["name"]
+        for row in table_rows
+    }
+
+    column_names = {
+        row["name"]
+        for row in export_columns
+    }
+
+    assert "exports" in table_names
+    assert "export_cases" in table_names
+    assert "idempotency_key" in column_names
+    assert "file_content" in column_names
+    assert "delivery_status" in column_names
+    assert "delivery_receipt" in column_names
+    assert "delivery_attempts" in column_names
+
+
+def test_export_idempotency_key_must_be_unique(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "test.db"
+    monkeypatch.setenv("DATABASE_PATH", str(database_path))
+
+    init_database()
+
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO batches (source_filename)
+            VALUES (?)
+            """,
+            ("export_test.csv",),
+        )
+        batch_id = cursor.lastrowid
+
+        export_values = (
+            batch_id,
+            "EXPORT-001.csv",
+            b"case_ref\nAPPL-001\n",
+            "export-key-001",
+            1,
+        )
+
+        connection.execute(
+            """
+            INSERT INTO exports (
+                batch_id,
+                file_name,
+                file_content,
+                idempotency_key,
+                case_count
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            export_values,
+        )
+
+        try:
+            connection.execute(
+                """
+                INSERT INTO exports (
+                    batch_id,
+                    file_name,
+                    file_content,
+                    idempotency_key,
+                    case_count
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                export_values,
+            )
+        except sqlite3.IntegrityError:
+            duplicate_was_rejected = True
+        else:
+            duplicate_was_rejected = False
+
+    assert duplicate_was_rejected is True
