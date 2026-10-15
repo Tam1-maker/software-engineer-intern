@@ -257,6 +257,12 @@ def list_batch_cases(
                 image_ref,
                 status,
                 failure_reason,
+                ocr_id_number,
+                ocr_full_name,
+                ocr_dob,
+                ocr_issue_date,
+                ocr_confidence,
+                ocr_attempts,
                 created_at
             FROM cases
             {where_clause}

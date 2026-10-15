@@ -23,8 +23,34 @@ def get_connection() -> sqlite3.Connection:
     return connection
 
 
+def _ensure_column(
+    connection: sqlite3.Connection,
+    table_name: str,
+    column_name: str,
+    definition: str,
+) -> None:
+    """Add a column when upgrading an existing SQLite database."""
+
+    columns = connection.execute(
+        f"PRAGMA table_info({table_name})"
+    ).fetchall()
+
+    existing_names = {
+        column["name"]
+        for column in columns
+    }
+
+    if column_name not in existing_names:
+        connection.execute(
+            f"""
+            ALTER TABLE {table_name}
+            ADD COLUMN {column_name} {definition}
+            """
+        )
+
+
 def init_database() -> None:
-    """Create the application tables if they do not already exist."""
+    """Create or upgrade the application database."""
 
     with get_connection() as connection:
         connection.executescript(
@@ -48,6 +74,12 @@ def init_database() -> None:
                 image_ref TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
                 failure_reason TEXT,
+                ocr_id_number TEXT,
+                ocr_full_name TEXT,
+                ocr_dob TEXT,
+                ocr_issue_date TEXT,
+                ocr_confidence REAL,
+                ocr_attempts INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (batch_id) REFERENCES batches(id)
                     ON DELETE CASCADE,
@@ -73,3 +105,39 @@ def init_database() -> None:
             """
         )
 
+        _ensure_column(
+            connection,
+            "cases",
+            "ocr_id_number",
+            "TEXT",
+        )
+        _ensure_column(
+            connection,
+            "cases",
+            "ocr_full_name",
+            "TEXT",
+        )
+        _ensure_column(
+            connection,
+            "cases",
+            "ocr_dob",
+            "TEXT",
+        )
+        _ensure_column(
+            connection,
+            "cases",
+            "ocr_issue_date",
+            "TEXT",
+        )
+        _ensure_column(
+            connection,
+            "cases",
+            "ocr_confidence",
+            "REAL",
+        )
+        _ensure_column(
+            connection,
+            "cases",
+            "ocr_attempts",
+            "INTEGER NOT NULL DEFAULT 0",
+        )

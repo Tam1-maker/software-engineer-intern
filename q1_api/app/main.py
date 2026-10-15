@@ -2,7 +2,14 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from pydantic import BaseModel
 
 from app.batch_service import (
@@ -12,6 +19,10 @@ from app.batch_service import (
     list_batch_cases,
 )
 from app.database import init_database
+from app.ocr_processor import (
+    get_pending_case_count,
+    process_batch,
+)
 from app.review_service import (
     CaseNotFoundError,
     InvalidTransitionError,
@@ -162,3 +173,36 @@ def create_case_review(
             status_code=409,
             detail=str(exc),
         ) from exc
+
+
+@app.post("/api/batches/{batch_id}/process", status_code=202)
+def start_batch_processing(
+    batch_id: int,
+    background_tasks: BackgroundTasks,
+):
+    """Start OCR processing without waiting for completion."""
+
+    pending_count = get_pending_case_count(batch_id)
+
+    if pending_count is None:
+        raise HTTPException(
+            status_code=404,
+            detail="batch not found",
+        )
+
+    if pending_count > 0:
+        background_tasks.add_task(
+            process_batch,
+            batch_id,
+        )
+
+    return {
+        "batch_id": batch_id,
+        "processing_started": pending_count > 0,
+        "pending_count": pending_count,
+        "message": (
+            "OCR processing started"
+            if pending_count > 0
+            else "no pending cases to process"
+        ),
+    }
