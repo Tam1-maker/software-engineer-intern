@@ -18,7 +18,7 @@ from app.batch_service import (
     import_batch,
     list_batch_cases,
 )
-from app.database import init_database
+from app.database import get_connection, init_database
 from app.export_service import (
     BatchNotFoundError,
     export_batch,
@@ -231,3 +231,22 @@ def create_batch_export(batch_id: int):
 
     return result
 
+
+
+@app.get("/api/ready")
+def readiness():
+    """Report readiness after checking SQLite reachability."""
+
+    try:
+        with get_connection() as connection:
+            connection.execute("SELECT 1").fetchone()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"database is not reachable: {exc}",
+        ) from exc
+
+    return {
+        "status": "ready",
+        "database": "reachable",
+    }

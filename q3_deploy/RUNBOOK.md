@@ -1,28 +1,79 @@
-# Operations runbook template
+# Deployment Runbook
 
-Complete this template after implementing Module 3. Replace bracketed prompts with tested commands and observed results. Remove these instructions before submission. Run deployment commands from `q3_deploy/` unless a step specifies another directory.
+## Configuration and startup
 
-## Start the system
+Requirements: Docker Desktop with Docker Compose v2 and host port 8080 available.
 
-1. Copy `.env.example` to `.env` and set [required configuration values].
-2. Run `docker compose up --build`.
-3. Check [readiness command]. Expected result: [ready response after the database is reachable].
-4. Run `bash scripts/smoke_test.sh` in another terminal. Expected result: [successful batch delivery and recorded receipt].
+From `q3_deploy/` run:
 
-## Read logs
+    cp .env.example .env
+    docker compose up --build -d
+    docker compose ps
 
-Run `docker compose logs --tail=100 api mock_ocr mock_onboarding nginx` to inspect recent service logs. Add `-f` to follow new output.
+The required services are `api`, `mock_ocr`, `mock_onboarding`, and `nginx`. All four should be healthy.
 
-[Record database log access if a separate database service is used. Identify the log fields or messages used to trace a case or export.]
+Verify:
 
-## Diagnose OCR failures
+    curl -i http://localhost:8080/api/health
+    curl -i http://localhost:8080/api/ready
+    bash scripts/smoke_test.sh
 
-1. Run [command to check the OCR service's `/online` endpoint]. Expected response: `{"online": true}`.
-2. Inspect `docker compose logs --tail=100 mock_ocr api` and [command to inspect failed case reasons].
-3. Use [recovery command] when the OCR service is unavailable. Use [case recovery action] for timeouts or exhausted retries. An unreadable scan requires a corrected image before processing again.
+## Log access
 
-## Restore a backup
+    docker compose logs --tail=100
+    docker compose logs -f
+    docker compose logs --tail=100 api
+    docker compose logs --tail=100 mock_ocr
+    docker compose logs --tail=100 mock_onboarding
+    docker compose logs --tail=100 nginx
 
-1. Select [backup path] and run [command to stop database writes before restoration].
-2. Run [restore command for the chosen database].
-3. Run [restart command], then [readiness and restored-data checks]. Expected result: [database reachable and selected backup data present].
+## OCR failure diagnosis
+
+Check batch status and failed cases:
+
+    curl -sS http://localhost:8080/api/batches/BATCH_ID
+    curl -sS "http://localhost:8080/api/batches/BATCH_ID/cases?status=ocr_failed&page=1&page_size=100"
+
+Inspect OCR outcomes:
+
+    docker compose exec mock_ocr python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:9100/debug/requests').read().decode())"
+
+`unreadable` is permanent. `error_500` and `hang` are transient and receive bounded retries. Reprocess pending cases with:
+
+    curl -X POST http://localhost:8080/api/batches/BATCH_ID/process
+
+## Backup
+
+Create an online SQLite backup:
+
+    bash scripts/backup.sh
+
+Backups are stored in `q3_deploy/backups/`; only the seven newest `app-*.db` files are retained.
+
+Verify the latest backup:
+
+    LATEST_BACKUP="$(find backups -type f -name 'app-*.db' | sort -r | head -n 1)"
+    sqlite3 "${LATEST_BACKUP}" "PRAGMA integrity_check;"
+
+Expected result: `ok`.
+
+## Restore
+
+    docker compose stop nginx api
+    BACKUP_FILE="$(find backups -type f -name 'app-*.db' | sort -r | head -n 1)"
+    sqlite3 "${BACKUP_FILE}" "PRAGMA integrity_check;"
+    docker compose up -d --no-deps api
+    docker compose cp "${BACKUP_FILE}" api:/data/app.db
+    docker compose restart api
+    docker compose up -d nginx
+    curl -i http://localhost:8080/api/ready
+
+## Shutdown
+
+Keep persistent data:
+
+    docker compose down
+
+Remove the persistent volume only when data is no longer required:
+
+    docker compose down -v

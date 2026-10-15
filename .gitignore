@@ -6,3 +6,7 @@ __pycache__/
 .DS_Store
 *.db
 backups/
+
+q3_deploy/.env
+
+q3_deploy/backups/
